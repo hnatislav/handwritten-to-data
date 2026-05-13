@@ -1,0 +1,72 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python environments and caches
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter-generated state
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+notebooks/outputs/
+
+# Local data, model weights, and generated experiment artifacts
+/data/
+/models/
+/outputs/
+/checkpoints/
+/artifacts/
+/runs/
+/wandb/
+/mlruns/
+
+# Large model/checkpoint files
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.h5
+*.pb
+
+# ML/OCR and Kaggle caches
+/.cache/
+/cache/
+/kaggle/
+/.kaggle/
+kaggle.json
+*.kaggle
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.parquet
+*.arrow
+
+# Temporary/debug artifacts
+/tmp/
+/temp/
+/debug/
+/scratch/
+/test_photo*
+*.log
+
+# Keep lightweight, reproducibility-critical project artifacts trackable:
+# configs/, docs/, reports/, split manifests, and evaluation summaries should
+# live outside ignored cache/output directories when they need version control.

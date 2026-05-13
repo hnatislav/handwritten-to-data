@@ -1,0 +1,13 @@
+jupyter
+pandas
+numpy
+matplotlib
+pillow
+opencv-python
+scikit-learn
+datasets
+torch
+transformers
+sentencepiece
+tiktoken
+protobuf

@@ -59,10 +59,16 @@ If SSH is not configured in the notebook, use the HTTPS URL for read-only clone.
 ### 2. Install dependencies
 
 ```bash
-!pip install -r requirements-kaggle-ocr-smoke.lock.txt
+!pip install --no-deps -r requirements-kaggle-ocr.txt
 ```
 
+This intentionally preserves the native Kaggle torch/CUDA stack.
+
 ### 3. Verify GPU
+
+```bash
+!python -m scripts.verify_kaggle_ocr_environment --require-cuda
+```
 
 ```python
 import torch
@@ -219,6 +225,12 @@ The following generation flags are not valid...
 record the full warning text in the run notes.
 
 The current TrOCR wrapper uses `max_new_tokens` and does not mutate `generation_config.max_length`.
+
+## Environment Policy
+
+Do not install `requirements-kaggle-ocr-smoke.lock.txt`. It has been removed because it replaced Kaggle torch/CUDA, numpy, pandas, and protobuf.
+
+Use `requirements-kaggle-ocr.txt` and save `outputs/kaggle_ocr_environment.json` with run artifacts.
 
 ## Limitations
 

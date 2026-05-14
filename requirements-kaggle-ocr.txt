@@ -1,0 +1,12 @@
+# Kaggle OCR runtime requirements.
+#
+# Deliberately do not pin or install torch, torchvision, torchaudio, CUDA
+# packages, numpy, pandas, or protobuf. Those are supplied by the Kaggle base
+# image and should remain internally consistent with the notebook runtime.
+
+transformers>=4.45,<4.56
+tokenizers>=0.20,<0.22
+huggingface-hub>=0.24,<1
+safetensors>=0.4.3
+sentencepiece>=0.1.99
+datasets>=2.18,<5

@@ -98,13 +98,15 @@ Observed from the successful Kaggle run:
 - HuggingFace model download: successful;
 - model: `cyrillic-trocr/trocr-handwritten-cyrillic`.
 
-Runtime package pin file:
+Runtime package strategy:
 
 ```text
-requirements-kaggle-ocr-smoke.lock.txt
+requirements-kaggle-ocr.txt
 ```
 
-The training script now writes runtime metadata into:
+The original smoke run used a heavy lock file. That file has been removed from the recommended workflow because it replaced the Kaggle torch/CUDA stack and pinned core numerical libraries.
+
+The training script writes runtime metadata into:
 
 ```text
 /kaggle/working/outputs/ocr_smoke_gpu/metadata.json
@@ -112,6 +114,12 @@ The training script now writes runtime metadata into:
 ```
 
 Use those files as the source of truth for exact package/CUDA versions from each future Kaggle run.
+
+Also run:
+
+```bash
+python -m scripts.verify_kaggle_ocr_environment --require-cuda
+```
 
 ## Output Structure
 

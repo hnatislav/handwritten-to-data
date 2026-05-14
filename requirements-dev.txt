@@ -1,0 +1,7 @@
+# Local development convenience requirements.
+#
+# This file is for local notebooks, analysis, and artifact generation. It is
+# intentionally separate from Kaggle runtime requirements because Kaggle should
+# keep its native CUDA/PyTorch stack.
+
+-r requirements.txt

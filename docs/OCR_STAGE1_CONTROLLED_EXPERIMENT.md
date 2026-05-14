@@ -148,10 +148,11 @@ git clone https://github.com/hnatislav/handwritten-to-data.git /kaggle/working/h
 cd /kaggle/working/handwritten-to-data
 ```
 
-Install pinned smoke/stage-1 runtime:
+Install lightweight OCR runtime without replacing Kaggle torch/CUDA:
 
 ```bash
-pip install -r requirements-kaggle-ocr-smoke.lock.txt
+pip install --no-deps -r requirements-kaggle-ocr.txt
+python -m scripts.verify_kaggle_ocr_environment --require-cuda
 ```
 
 Verify GPU:

@@ -1,0 +1,10 @@
+{
+  "max_token_length": 128,
+  "model_name": "cyrillic-trocr/trocr-handwritten-cyrillic",
+  "output_dir": "data/ocr_stage1/rukopys_ocr_stage1_v1",
+  "seed": 42,
+  "train_manifest": "data/ocr_crops/rukopys_gt_only_train_v1/manifests/train.jsonl",
+  "train_size": 3000,
+  "val_manifest": "data/ocr_crops/rukopys_gt_only_train_v1/manifests/val.jsonl",
+  "val_size": 400
+}

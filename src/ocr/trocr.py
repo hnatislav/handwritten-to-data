@@ -30,8 +30,13 @@ class TrOCRRecognizer:
         self.processor = TrOCRProcessor.from_pretrained(self.config.model_name)
         self.model = VisionEncoderDecoderModel.from_pretrained(self.config.model_name)
         self.generation_config = deepcopy(self.model.generation_config)
+        self.generation_config.max_length = self.config.max_new_tokens
+        self.generation_config.max_new_tokens = None
+        self.generation_config.num_beams = self.config.num_beams
         if self.config.num_beams == 1:
             self.generation_config.early_stopping = False
+            self.generation_config.length_penalty = None
+        self.model.generation_config = deepcopy(self.generation_config)
         self.model.to(self.config.device)
         self.model.eval()
 
@@ -43,8 +48,6 @@ class TrOCRRecognizer:
         generated_ids = self.model.generate(
             pixel_values,
             generation_config=self.generation_config,
-            max_new_tokens=self.config.max_new_tokens,
-            num_beams=self.config.num_beams,
         )
         text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
         return OCRResult(

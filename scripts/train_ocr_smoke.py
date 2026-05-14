@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
 from src.evaluation.cer import character_error_rate
-from src.experiments.logging import write_experiment_metadata, write_json
+from src.experiments.logging import runtime_environment, write_experiment_metadata, write_json
 from src.ocr.crop_manifest import read_manifest, resolve_crop_path
 from src.ocr.trocr import TrOCRConfig, TrOCRRecognizer
 
@@ -71,6 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=1e-5)
     parser.add_argument("--max-target-length", type=int, default=96)
     parser.add_argument("--max-new-tokens", type=int, default=96)
+    parser.add_argument("--allow-truncation", action="store_true")
     parser.add_argument("--eval-limit", type=int, default=8)
     return parser.parse_args()
 
@@ -81,6 +82,32 @@ def deterministic_rows(path: str, limit: int, seed: int) -> list[dict[str, Any]]
     rng = random.Random(seed)
     rng.shuffle(rows)
     return rows[:limit]
+
+
+def token_lengths(rows: list[dict[str, Any]], processor: TrOCRProcessor) -> list[int]:
+    return [len(processor.tokenizer(row["text"], add_special_tokens=False)["input_ids"]) for row in rows]
+
+
+def validate_target_lengths(rows: list[dict[str, Any]], processor: TrOCRProcessor, max_target_length: int, allow_truncation: bool) -> dict[str, Any]:
+    lengths = token_lengths(rows, processor)
+    too_long = [
+        {"crop_id": row["crop_id"], "token_length": length, "text": row["text"]}
+        for row, length in zip(rows, lengths, strict=True)
+        if length > max_target_length
+    ]
+    if too_long and not allow_truncation:
+        examples = too_long[:5]
+        raise ValueError(
+            f"{len(too_long)} rows exceed max_target_length={max_target_length}. "
+            f"Pass --allow-truncation only for explicit smoke tests. Examples: {examples}"
+        )
+    return {
+        "max_target_length": max_target_length,
+        "rows": len(rows),
+        "max_observed": max(lengths) if lengths else None,
+        "too_long_count": len(too_long),
+        "truncation_allowed": allow_truncation,
+    }
 
 
 def evaluate_reloaded_checkpoint(checkpoint_dir: Path, val_manifest: str, val_rows: list[dict[str, Any]], device: str, max_new_tokens: int) -> dict[str, Any]:
@@ -140,9 +167,15 @@ def main() -> None:
     model = VisionEncoderDecoderModel.from_pretrained(args.model_name)
     model.to(device)
     model.train()
+    if device.type == "cuda":
+        torch.cuda.reset_peak_memory_stats(device)
 
     train_rows = deterministic_rows(args.train_manifest, args.train_limit, args.seed)
     val_rows = deterministic_rows(args.val_manifest, args.val_limit, args.seed)
+    target_length_policy = {
+        "train": validate_target_lengths(train_rows, processor, args.max_target_length, args.allow_truncation),
+        "val": validate_target_lengths(val_rows, processor, args.max_target_length, args.allow_truncation),
+    }
     train_dataset = OCRCropDataset(args.train_manifest, train_rows, processor, args.max_target_length)
     dataloader = DataLoader(
         train_dataset,
@@ -178,6 +211,12 @@ def main() -> None:
         device=args.device,
         max_new_tokens=args.max_new_tokens,
     )
+    runtime = runtime_environment()
+    if device.type == "cuda":
+        runtime["cuda_memory"] = {
+            "max_memory_allocated_mb": torch.cuda.max_memory_allocated(device) / (1024 * 1024),
+            "max_memory_reserved_mb": torch.cuda.max_memory_reserved(device) / (1024 * 1024),
+        }
     metrics = {
         "losses": losses,
         "first_train_batch_loss": losses[0] if losses else None,
@@ -185,10 +224,12 @@ def main() -> None:
         "probe_loss_before": probe_loss_before,
         "probe_loss_after": probe_loss_after,
         "loss_decreased": probe_loss_after < probe_loss_before,
+        "target_length_policy": target_length_policy,
         "reloaded_checkpoint_eval": {
             "rows": len(eval_result["rows"]),
             "mean_cer": eval_result["mean_cer"],
         },
+        "runtime": runtime,
     }
     write_json(output_dir / "metrics.json", metrics)
     write_json(output_dir / "reloaded_predictions.json", {"rows": eval_result["rows"]})

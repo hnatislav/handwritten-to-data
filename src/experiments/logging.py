@@ -5,6 +5,7 @@ import platform
 import subprocess
 import sys
 from datetime import datetime, timezone
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,57 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
     return output
 
 
+def package_versions(package_names: list[str] | tuple[str, ...]) -> dict[str, str | None]:
+    versions: dict[str, str | None] = {}
+    for name in package_names:
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions
+
+
+def runtime_environment() -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "packages": package_versions(
+            (
+                "torch",
+                "transformers",
+                "datasets",
+                "Pillow",
+                "numpy",
+                "pandas",
+                "opencv-python",
+                "scikit-learn",
+                "sentencepiece",
+                "protobuf",
+                "tiktoken",
+            )
+        ),
+    }
+    try:
+        import torch
+
+        payload["torch"] = {
+            "version": torch.__version__,
+            "cuda_available": torch.cuda.is_available(),
+            "cuda_version": torch.version.cuda,
+            "cudnn_version": torch.backends.cudnn.version(),
+            "device_count": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            "device_names": [
+                torch.cuda.get_device_name(index)
+                for index in range(torch.cuda.device_count())
+            ]
+            if torch.cuda.is_available()
+            else [],
+        }
+    except Exception as error:  # pragma: no cover - diagnostic metadata only.
+        payload["torch"] = {"error": repr(error)}
+    return payload
+
+
 def write_experiment_metadata(
     experiment_dir: str | Path,
     config: dict[str, Any],
@@ -40,6 +92,7 @@ def write_experiment_metadata(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "python": sys.version,
         "platform": platform.platform(),
+        "runtime": runtime_environment(),
         "git_commit": current_git_commit(),
         "config": config,
         "dataset_info": dataset_info,

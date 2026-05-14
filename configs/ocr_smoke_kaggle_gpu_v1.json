@@ -1,0 +1,22 @@
+{
+  "allow_truncation": false,
+  "batch_size": 4,
+  "dataset": {
+    "artifact_name": "rukopys-ocr-smoke-v1",
+    "artifact_sha256": "d31d6572307dedfe9a318bf209dde85aace09295d7d681c7433a1a98d272eefb",
+    "root": "/kaggle/input/rukopys-ocr-smoke-v1/rukopys_ocr_smoke_v1",
+    "train_manifest": "/kaggle/input/rukopys-ocr-smoke-v1/rukopys_ocr_smoke_v1/manifests/train.jsonl",
+    "val_manifest": "/kaggle/input/rukopys-ocr-smoke-v1/rukopys_ocr_smoke_v1/manifests/val.jsonl"
+  },
+  "device": "cuda",
+  "epochs": 1,
+  "eval_limit": 8,
+  "learning_rate": 1e-05,
+  "max_new_tokens": 96,
+  "max_target_length": 96,
+  "model_name": "cyrillic-trocr/trocr-handwritten-cyrillic",
+  "output_dir": "/kaggle/working/outputs/ocr_smoke_gpu",
+  "seed": 42,
+  "train_limit": 128,
+  "val_limit": 32
+}

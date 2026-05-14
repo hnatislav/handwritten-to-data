@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 
 import torch
@@ -28,7 +29,9 @@ class TrOCRRecognizer:
         self.config = config or TrOCRConfig()
         self.processor = TrOCRProcessor.from_pretrained(self.config.model_name)
         self.model = VisionEncoderDecoderModel.from_pretrained(self.config.model_name)
-        self.model.generation_config.max_length = self.config.max_new_tokens
+        self.generation_config = deepcopy(self.model.generation_config)
+        if self.config.num_beams == 1:
+            self.generation_config.early_stopping = False
         self.model.to(self.config.device)
         self.model.eval()
 
@@ -39,7 +42,8 @@ class TrOCRRecognizer:
         pixel_values = inputs.pixel_values.to(self.config.device)
         generated_ids = self.model.generate(
             pixel_values,
-            max_length=self.config.max_new_tokens,
+            generation_config=self.generation_config,
+            max_new_tokens=self.config.max_new_tokens,
             num_beams=self.config.num_beams,
         )
         text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
@@ -50,5 +54,7 @@ class TrOCRRecognizer:
                 "recognizer": "trocr",
                 "model_name": self.config.model_name,
                 "device": self.config.device,
+                "max_new_tokens": self.config.max_new_tokens,
+                "num_beams": self.config.num_beams,
             },
         )

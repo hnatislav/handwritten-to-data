@@ -4,6 +4,7 @@ import difflib
 import json
 import math
 import re
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from src.ocr.crop_manifest import resolve_crop_path, text_length_bucket
 
 PUNCTUATION_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
+REPLACEMENT_CHAR = "\ufffd"
 
 
 @dataclass(frozen=True)
@@ -138,6 +140,42 @@ def punctuation_only_drift(reference: str, prediction: str) -> bool:
     return bool(prediction.strip()) and bool(PUNCTUATION_RE.match(prediction.strip())) and reference.strip() != prediction.strip()
 
 
+def unicode_codepoints(text: str) -> list[dict[str, Any]]:
+    rows = []
+    for index, char in enumerate(text):
+        codepoint = ord(char)
+        try:
+            name = unicodedata.name(char)
+        except ValueError:
+            name = "<unnamed>"
+        rows.append(
+            {
+                "index": index,
+                "char": char,
+                "repr": repr(char),
+                "codepoint": f"U+{codepoint:04X}",
+                "category": unicodedata.category(char),
+                "name": name,
+                "is_replacement_char": char == REPLACEMENT_CHAR,
+                "is_control": unicodedata.category(char).startswith("C"),
+            }
+        )
+    return rows
+
+
+def unicode_summary(text: str) -> dict[str, Any]:
+    codepoints = unicode_codepoints(text)
+    return {
+        "length": len(text),
+        "repr": repr(text),
+        "replacement_char_count": sum(item["is_replacement_char"] for item in codepoints),
+        "control_char_count": sum(item["is_control"] for item in codepoints),
+        "non_ascii_count": sum(ord(char) > 127 for char in text),
+        "cyrillic_count": len(CYRILLIC_RE.findall(text)),
+        "codepoints": codepoints,
+    }
+
+
 def classify_error(row: dict[str, Any], max_target_length: int | None = None) -> list[str]:
     reference = str(row.get("reference_text", row.get("text", "")))
     prediction = str(row.get("predicted_text", ""))
@@ -154,6 +192,10 @@ def classify_error(row: dict[str, Any], max_target_length: int | None = None) ->
         labels.append("repeated_token_degeneration")
     if punctuation_only_drift(reference, prediction):
         labels.append("punctuation_only_drift")
+    if REPLACEMENT_CHAR in prediction:
+        labels.append("invalid_unicode_output")
+    if REPLACEMENT_CHAR in reference:
+        labels.append("invalid_unicode_reference")
     if profile.cyrillic_substitutions:
         labels.append("cyrillic_character_confusion")
     if len(reference) >= 80 and pred_len <= max(10, int(0.4 * len(reference))):

@@ -1,0 +1,21 @@
+{
+  "dataset": {
+    "artifact_name": "rukopys-ocr-overfit-v1",
+    "artifact_sha256": "d69f1afac4609aa3592b92caa663d5a1a6f2239cf913255bb1c6ed0990e88d7c",
+    "root": "/kaggle/input/rukopys-ocr-overfit-v1/rukopys_ocr_overfit_v1",
+    "train_manifest": "/kaggle/input/rukopys-ocr-overfit-v1/rukopys_ocr_overfit_v1/manifests/train.jsonl",
+    "val_manifest": "/kaggle/input/rukopys-ocr-overfit-v1/rukopys_ocr_overfit_v1/manifests/val.jsonl"
+  },
+  "device": "cuda",
+  "epochs": 40,
+  "batch_size": 4,
+  "learning_rate": 5e-05,
+  "weight_decay": 0.0,
+  "max_target_length": 128,
+  "max_new_tokens": 128,
+  "eval_every": 5,
+  "sample_k": 8,
+  "model_name": "cyrillic-trocr/trocr-handwritten-cyrillic",
+  "output_dir": "/kaggle/working/outputs/ocr_overfit_v1",
+  "seed": 42
+}

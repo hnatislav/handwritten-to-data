@@ -14,6 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mode", choices=["hardest", "sample", "truncation"], default="hardest")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--columns", type=int, default=2)
+    parser.add_argument("--font", default=None)
     return parser.parse_args()
 
 
@@ -28,7 +29,7 @@ def main() -> None:
     else:
         rows = sorted(predictions, key=lambda row: str(row.get("crop_id")))[: args.limit]
     output = Path(args.output) if args.output else Path(args.experiment_dir) / "analysis" / f"{args.mode}_grid.png"
-    render_prediction_grid(rows, args.manifest, output, columns=args.columns)
+    render_prediction_grid(rows, args.manifest, output, columns=args.columns, font_path=args.font)
     print(f"rows={len(rows)}")
     print(f"output={output}")
 

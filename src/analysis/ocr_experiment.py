@@ -4,6 +4,7 @@ import difflib
 import json
 import math
 import re
+import textwrap
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -19,6 +20,16 @@ from src.ocr.crop_manifest import resolve_crop_path, text_length_bucket
 PUNCTUATION_RE = re.compile(r"^[\W_]+$", re.UNICODE)
 CYRILLIC_RE = re.compile(r"[\u0400-\u04ff]")
 REPLACEMENT_CHAR = "\ufffd"
+UNICODE_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+    "/System/Library/Fonts/LucidaGrande.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +56,30 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
             if line.strip():
                 rows.append(json.loads(line))
     return rows
+
+
+def utf8_file_diagnostics(path: str | Path) -> dict[str, Any]:
+    raw = Path(path).read_bytes()
+    try:
+        decoded = raw.decode("utf-8", errors="strict")
+        valid = True
+        error = None
+    except UnicodeDecodeError as exc:
+        decoded = raw.decode("utf-8", errors="replace")
+        valid = False
+        error = {
+            "reason": exc.reason,
+            "start": exc.start,
+            "end": exc.end,
+            "object_slice_hex": raw[exc.start : exc.end].hex(),
+        }
+    return {
+        "path": str(path),
+        "bytes": len(raw),
+        "utf8_valid": valid,
+        "decode_error": error,
+        "replacement_char_count_after_decode": decoded.count(REPLACEMENT_CHAR),
+    }
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
@@ -165,9 +200,16 @@ def unicode_codepoints(text: str) -> list[dict[str, Any]]:
 
 def unicode_summary(text: str) -> dict[str, Any]:
     codepoints = unicode_codepoints(text)
+    nfc = unicodedata.normalize("NFC", text)
+    nfd = unicodedata.normalize("NFD", text)
     return {
         "length": len(text),
         "repr": repr(text),
+        "is_nfc": text == nfc,
+        "is_nfd": text == nfd,
+        "nfc_repr": repr(nfc),
+        "nfd_repr": repr(nfd),
+        "utf8_hex": text.encode("utf-8", errors="strict").hex(),
         "replacement_char_count": sum(item["is_replacement_char"] for item in codepoints),
         "control_char_count": sum(item["is_control"] for item in codepoints),
         "non_ascii_count": sum(ord(char) > 127 for char in text),
@@ -233,6 +275,51 @@ def enrich_prediction(row: dict[str, Any], max_target_length: int | None = None)
     }
     enriched["error_buckets"] = classify_error(enriched, max_target_length=max_target_length)
     return enriched
+
+
+def find_unicode_font(explicit_font: str | Path | None = None) -> Path | None:
+    candidates: list[str | Path] = []
+    if explicit_font is not None:
+        candidates.append(explicit_font)
+    candidates.extend(UNICODE_FONT_CANDIDATES)
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists():
+            return path
+    return None
+
+
+def load_unicode_font(size: int = 16, explicit_font: str | Path | None = None):
+    font_path = find_unicode_font(explicit_font)
+    if font_path is not None:
+        try:
+            return ImageFont.truetype(str(font_path), size=size), str(font_path)
+        except OSError:
+            pass
+    return ImageFont.load_default(), None
+
+
+def font_render_probe(font) -> dict[str, Any]:
+    probes = {
+        "ukrainian": "Україна Є ї І і Ґ ґ",
+        "punctuation": ".,:;!?-()[]",
+        "replacement": REPLACEMENT_CHAR,
+    }
+    results = {}
+    for name, text in probes.items():
+        try:
+            bbox = font.getbbox(text)
+            width = bbox[2] - bbox[0]
+            height = bbox[3] - bbox[1]
+            ok = width > 0 and height > 0
+        except Exception as error:
+            width = None
+            height = None
+            ok = False
+            results[name] = {"text": text, "ok": ok, "error": repr(error)}
+            continue
+        results[name] = {"text": text, "ok": ok, "width": width, "height": height}
+    return results
 
 
 def summarize_group(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -371,6 +458,8 @@ def render_prediction_grid(
     columns: int = 2,
     crop_width: int = 420,
     text_height: int = 150,
+    font_path: str | Path | None = None,
+    font_size: int = 16,
 ) -> Path:
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -378,7 +467,7 @@ def render_prediction_grid(
         canvas = Image.new("RGB", (crop_width, text_height), "white")
         canvas.save(output)
         return output
-    font = ImageFont.load_default()
+    font, resolved_font = load_unicode_font(size=font_size, explicit_font=font_path)
     cell_width = crop_width
     cell_height = crop_width // 3 + text_height
     rows_count = math.ceil(len(rows) / columns)
@@ -403,7 +492,39 @@ def render_prediction_grid(
             f"REF: {row.get('reference_text', '')}",
             f"PRED: {row.get('predicted_text', '')}",
         ]
-        for offset, line in enumerate(lines):
-            draw.text((x0 + 6, text_y + offset * 16), line[:110], fill="black", font=font)
+        wrapped_lines = []
+        for line in lines:
+            wrapped_lines.extend(textwrap.wrap(line, width=75) or [""])
+        for offset, line in enumerate(wrapped_lines[:8]):
+            draw.text((x0 + 6, text_y + offset * (font_size + 4)), line, fill="black", font=font)
+        if resolved_font:
+            draw.text((x0 + 6, y0 + cell_height - 18), f"font: {Path(resolved_font).name}", fill="gray", font=font)
     canvas.save(output)
     return output
+
+
+def render_unicode_self_test(output_path: str | Path, font_path: str | Path | None = None) -> dict[str, Any]:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    font, resolved_font = load_unicode_font(size=22, explicit_font=font_path)
+    lines = [
+        "Known Cyrillic: Україна Є ї І і Ґ ґ",
+        "Lowercase: абвгдеєжзиіїйклмнопрстуфхцчшщьюя",
+        "Mixed punctuation: Тест: 123, дата 14.05.2026!",
+        f"Replacement char marker: {REPLACEMENT_CHAR}",
+        "NFD probe: " + unicodedata.normalize("NFD", "ї Є Ґ"),
+    ]
+    width = 1200
+    height = 80 + len(lines) * 42
+    canvas = Image.new("RGB", (width, height), "white")
+    draw = ImageDraw.Draw(canvas)
+    draw.text((20, 20), f"font={resolved_font or 'PIL default'}", fill="black", font=font)
+    for index, line in enumerate(lines):
+        draw.text((20, 70 + index * 42), line, fill="black", font=font)
+    canvas.save(output)
+    return {
+        "output": str(output),
+        "font": resolved_font,
+        "font_probe": font_render_probe(font),
+        "strings": [{"text": line, "unicode": unicode_summary(line)} for line in lines],
+    }

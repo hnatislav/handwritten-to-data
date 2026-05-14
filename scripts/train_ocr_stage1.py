@@ -5,7 +5,7 @@ import json
 import random
 import re
 import time
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ from src.evaluation.cer import character_error_rate, levenshtein_distance
 from src.experiments.logging import runtime_environment, write_experiment_metadata, write_json
 from src.ocr.crop_manifest import read_manifest, resolve_crop_path, text_length_bucket
 from src.ocr.trocr import TrOCRConfig, TrOCRRecognizer
+from src.analysis.ocr_experiment import enrich_prediction, grouped_metrics, summarize_group
 
 
 class OCRCropDataset(Dataset):
@@ -150,18 +151,6 @@ def fixed_batch_loss(model, dataset: OCRCropDataset, device: torch.device, batch
     return float(outputs.loss.detach().cpu())
 
 
-def summarize_group(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    if not rows:
-        return {"rows": 0, "mean_cer": None, "unweighted_mean_cer": None}
-    edits = sum(row["edit_distance"] for row in rows)
-    ref_len = sum(row["reference_length"] for row in rows)
-    return {
-        "rows": len(rows),
-        "mean_cer": edits / ref_len if ref_len else 0.0,
-        "unweighted_mean_cer": sum(row["cer"] for row in rows) / len(rows),
-    }
-
-
 def has_repeated_token_failure(text: str) -> bool:
     tokens = re.findall(r"\S+", text)
     if len(tokens) >= 4:
@@ -227,16 +216,6 @@ def evaluate_checkpoint(
     return predictions
 
 
-def grouped_metrics(predictions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    for key in ["source", "region_type", "language", "annotation_source", "text_length_bucket", "handwriting_bucket"]:
-        buckets: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        for row in predictions:
-            buckets[str(row.get(key))].append(row)
-        grouped[key] = {bucket: summarize_group(items) for bucket, items in sorted(buckets.items())}
-    return grouped
-
-
 def write_error_analysis(
     output_dir: Path,
     predictions: list[dict[str, Any]],
@@ -244,24 +223,28 @@ def write_error_analysis(
     sample_k: int,
     max_target_length: int,
 ) -> dict[str, Any]:
-    hardest = sorted(predictions, key=lambda row: (row["cer"], row["reference_length"]), reverse=True)[:hardest_k]
+    enriched = [enrich_prediction(row, max_target_length=max_target_length) for row in predictions]
+    hardest = sorted(enriched, key=lambda row: (row["cer"], row["reference_length"]), reverse=True)[:hardest_k]
     longest_failures = sorted(
-        [row for row in predictions if row["cer"] > 0],
+        [row for row in enriched if row["cer"] > 0],
         key=lambda row: (row["reference_length"], row["cer"]),
         reverse=True,
     )[:hardest_k]
-    repeated_failures = [row for row in predictions if row["predicted_repeated_token_failure"]][:hardest_k]
+    repeated_failures = [
+        row for row in enriched if "repeated_token_degeneration" in row["error_buckets"]
+    ][:hardest_k]
     truncation_failures = [
         row
-        for row in predictions
-        if row["reference_token_length"] > max_target_length
+        for row in enriched
+        if "truncation_failure" in row["error_buckets"]
     ][:hardest_k]
-    representative = sorted(predictions, key=lambda row: (str(row.get("source")), row["crop_id"]))[:sample_k]
-    write_jsonl(output_dir / "predictions.jsonl", predictions)
+    representative = sorted(enriched, key=lambda row: (str(row.get("source")), row["crop_id"]))[:sample_k]
+    write_jsonl(output_dir / "predictions.jsonl", enriched)
     write_jsonl(output_dir / "hardest_examples.jsonl", hardest)
     write_jsonl(output_dir / "longest_failures.jsonl", longest_failures)
     write_jsonl(output_dir / "repeated_token_failures.jsonl", repeated_failures)
     write_jsonl(output_dir / "truncation_failures.jsonl", truncation_failures)
+    write_jsonl(output_dir / "sample_predictions.jsonl", representative)
     write_jsonl(output_dir / "representative_samples.jsonl", representative)
     return {
         "hardest_examples": len(hardest),
@@ -352,6 +335,10 @@ def main() -> None:
             "max_memory_reserved_mb": torch.cuda.max_memory_reserved(device) / (1024 * 1024),
         }
 
+    enriched_predictions = [
+        enrich_prediction(row, max_target_length=args.max_target_length)
+        for row in predictions
+    ]
     metrics = {
         "train_rows": len(train_rows),
         "val_rows_evaluated": len(val_rows),
@@ -363,13 +350,27 @@ def main() -> None:
         "loss_decreased": probe_loss_after < probe_loss_before,
         "epoch_metrics": epoch_metrics,
         "target_length_policy": target_policy,
-        "overall": summarize_group(predictions),
-        "grouped": grouped_metrics(predictions),
+        "overall": summarize_group(enriched_predictions),
+        "grouped": grouped_metrics(
+            enriched_predictions,
+            (
+                "source",
+                "region_type",
+                "language",
+                "annotation_source",
+                "text_length_bucket",
+                "handwriting_bucket",
+                "error_buckets",
+            ),
+        ),
         "error_analysis": analysis_counts,
         "runtime_seconds": time.time() - start_time,
         "runtime": runtime,
     }
     write_json(output_dir / "metrics.json", metrics)
+    write_json(output_dir / "runtime.json", runtime)
+    write_json(output_dir / "config_snapshot.json", vars(args))
+    write_json(output_dir / "environment_snapshot.json", runtime)
     write_experiment_metadata(
         output_dir,
         config=vars(args),

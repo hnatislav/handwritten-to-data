@@ -203,12 +203,16 @@ Expected output:
 ```text
 /kaggle/working/outputs/ocr_stage1_v1/
   checkpoint/
+  config_snapshot.json
+  environment_snapshot.json
   metadata.json
   metrics.json
+  runtime.json
   predictions.jsonl
   hardest_examples.jsonl
   longest_failures.jsonl
   repeated_token_failures.jsonl
+  sample_predictions.jsonl
   truncation_failures.jsonl
   representative_samples.jsonl
 ```
@@ -222,6 +226,27 @@ Expected output:
 - target-length policy;
 - package/CUDA runtime metadata;
 - peak CUDA memory fields when running on CUDA.
+
+Post-run inspection:
+
+```bash
+python -m scripts.inspect_ocr_experiment \
+  --experiment-dir /kaggle/working/outputs/ocr_stage1_v1 \
+  --output-dir /kaggle/working/outputs/ocr_stage1_v1/analysis \
+  --worst-k 50
+```
+
+Static hardest-case grid:
+
+```bash
+python -m scripts.render_ocr_samples \
+  --experiment-dir /kaggle/working/outputs/ocr_stage1_v1 \
+  --manifest /kaggle/input/rukopys-ocr-stage1-v1/rukopys_ocr_stage1_v1/manifests/val.jsonl \
+  --mode hardest \
+  --limit 20 \
+  --columns 2 \
+  --output /kaggle/working/outputs/ocr_stage1_v1/analysis/hardest_grid.png
+```
 
 ## Interpretation Rules
 
